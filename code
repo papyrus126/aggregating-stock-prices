@@ -1,0 +1,141 @@
+# -*- coding: utf-8 -*-
+"""
+Created on Sun Mar 26 17:23:50 2023
+ using correlation analysis to make recommenations
+@author: Chia-Liang
+"""
+
+#import sys
+import pandas as pd
+#import openpyxl # for write dataframe to excel
+#from datetime import datetime #匯入datetime, 以便操作有關系統時間相關的運算
+from pylab import mpl #從pylab 匯入mpl
+#import urllib.request, csv #匯入urllib.request及csv 網頁讀取的套件 & 處理csv格式的套件
+import os #python裡的os套件是提供有關作業系統操作呼叫的功能，例如對檔案進行重新命名、刪除, 變更目錄等
+          #系統級別的操作
+#import time #這是一個用來操作與時間有關的套件, 例如需要使time.sleep()來暫時中斷執行時#請把以下段落經常寫在處理中文的文字與數字處理的程式裡
+#以mpl裡的rcParams(runtime configuration))來指定預設字型:
+#在window系統下使用上述中文環境設定 
+mpl.rcParams['font.sans-serif'] = ['Microsoft YaHei'] 
+#在APPLE mac的中文顯示之設定 以mpl裡的rcParams來指定預設字型:解決plot不能顯示中文問題 
+#mpl.rcParams['font.sans-serif'] = ['Arial Unicode MS']   
+mpl.rcParams['axes.unicode_minus'] = False 
+# 以mpl裡的rcParams,來解決儲存影象是負號'-',卻顯示為方塊的問題
+
+def verifycode(code):
+#證交所上市股票代碼網頁https://isin.twse.com.tw/isin/class_main.jsp?owncode=&stockname=&isincode=&market=1&issuetype=1&industry_code=&Page=1&chklike=Y
+#證交所上樻股票代碼網頁https://isin.twse.com.tw/isin/class_main.jsp?owncode=&stockname=&isincode=&market=2&issuetype=4&industry_code=&Page=1&chklike=Y
+#確認是否查到傳來的股票代碼?  
+   T_F=True
+   dictfile='/Users/88693/Desktop/財經大數據 APP/data_association/TW_stockcode.csv'
+   TWcode = pd.read_csv(dictfile)  #以pandas(pd)套件來讀取檔案
+   TWcode=TWcode.set_index('有價證券代號').T.to_dict('list')
+   #此段程式以"有價證券代碼"當作索引key,並轉成資料字典,其它證券名稱/類別/...為查詢字典內容
+   #轉換的字典是一列一列的list格式,每一個list以代碼為首,後接其它公司內容
+   if TWcode.get(code)==None: #查字典.get(code)若找不到(code的值)則回應'None'
+      T_F=False #若是None,則設定T_F為 False
+      print('Not Found stock file! Please try again')
+   else:
+      print("你輸入的是 ",code,TWcode[code])
+      name=TWcode[code][0]
+   return (T_F, name)  #回傳 T_F及中文股票名稱
+##############
+def check_file(code):
+    filepath = '/Users/88693/Desktop/財經大數據 APP/data_association/stockyear_202204_202303_'+str(code)+'.csv'  
+    #取出已下載的某檔的年度股價檔案(過去12月)
+    if os.path.isfile(filepath):# 檢查是否存在此檔？ yes 就設 file_ok=True
+       file_ok=True
+    else:
+       print('Not Found data file! Please try again', code)
+       file_ok=False
+    return file_ok   #傳回找到股價檔案True
+      
+#####以下逐步查詢欲下載的股票代碼:
+codefile='/Users/88693/Desktop/財經大數據 APP/data_association/stock_code.xlsx'
+stockcode = pd.read_excel(codefile)  # 廠商名錄讀入置於此
+stock_pile=[] #準備把找到股價檔案的廠商名稱存在此 list
+for Corp_number in stockcode['code']:
+    check_code, stock_name=verifycode(Corp_number) 
+    #針對輸入的代碼 Corp_number ,進行確認是否存在此代碼,正確否? 
+    #verifycode會傳回來有兩個資料, 前者置於check_code, 後者置於stock_name
+    if check_code==True:    #如果傳回來check_code是True, 則後續查價資料檔是否存在       
+       print('Data in processing...%s, %s' % (Corp_number, stock_name))
+       # 列印出查詢股價資料檔中的股票代碼及公司名稱
+       look_for_file=False
+       look_for_file=check_file(Corp_number)  #查詢資料檔傳回的資訊置於look_for_file
+       if look_for_file==True:
+          stock_pile.append(str(Corp_number)+'_'+stock_name)
+          #找到資料檔的股票代碼與公司名稱存在stock_pile裡
+
+#製作一個 dataframe 欄位名即是 找到 股價資料檔的該串 list
+stock_price=pd.DataFrame(columns=stock_pile)       
+for stock in stock_pile: #逐一從 stock_pile的list中 讀入該資料檔
+    filepath = '/Users/88693/Desktop/財經大數據 APP/data_association/stockyear_202204_202303_'+stock[0:4]+'.csv'  
+    if os.path.isfile(filepath):  #如果檔案存在 就讀入該 csv檔  
+       stockprice = pd.read_csv(filepath)
+#       stockprice['收盤價'].fillna('0',inplace=True)
+       for i in range(len(stockprice['收盤價'])):  
+       #因有些股價並非存數字,而是有千位數之逗點, 要先逐一排除之, 代之以空值
+       #有些日子股票暫停交易,而呈現 "--"符號,亦要除去更換成 0
+           stockprice['收盤價'].iloc[i] = float(str(
+               stockprice['收盤價'].iloc[i]).replace(",","").replace("--","0"))
+       stock_price[stock]=stockprice['收盤價']
+       # 把讀入的資料檔中之收盤價取出, 置於 stock_price之欄位名為：股價代碼_名稱
+    else:
+       print('Not Found! Please try again', stock)
+
+#針對 股價資料檔名串列 list之第一筆  讀取其日期欄位 
+filepath = '/Users/88693/Desktop/財經大數據 APP/data_association/stockyear_202204_202303_'+stock_pile[0][0:4]+'.csv'  
+stockprice = pd.read_csv(filepath)
+stock_price.index=stockprice['日期'] #設定index
+## write dataframe to excel
+stock_price.to_excel('agg_stock_price.xlsx', sheet_name='agg_sheet_name')
+
+#利用 diff() 針對每日價, 後一天價減前一天價之差存起來
+# 排除第一日的資料na, 存於 price_diff
+price_diff=stock_price.diff(periods=1, axis=0).iloc[1:,0:]
+# total variables including in the matrix is 80
+stock_corr=price_diff.corr() #針對stock_diff的數值欄位計算相關係數, 結果存在stock_corr
+#stock_corr是一個 dataframe結構, index即是股票代碼—名稱
+for name in stock_corr.index: #把index中的所有股票代碼—名稱依序讀出
+    stock_recomms=stock_corr.loc[name].sort_values(ascending=False)
+    #取出每一index對應之row, 並且把此row的各columns 由大到小排序,置於stock_recomms
+    #列印出目前的股票名稱, 接著列印出 1st 2nd 3rd...推薦此股有關連的股票
+    print ('Recommendation stocks related to %s :' % stock_recomms.index[0])
+    for i in range(1,min(11,len(stock_recomms.index))): #show top 10 correlated stocks
+        print('       No. %s stock: %s' % (i, stock_recomms.index[i]))
+        
+from sklearn.metrics.pairwise import cosine_similarity
+# using the cosine_similarity modle to calculate the similarity between items
+# the cosine value will decrease when the angle between two items increase.
+
+# #### - stock-to-stock Similarity Matrix by the original price values
+stock_price=stock_price.T # transpose the matrix of close prices
+# from the original date x stock form to the stock x date one
+
+stock_stock_sim_matrix = pd.DataFrame(
+    cosine_similarity(stock_price)) 
+# the cosine_similarity function compute the correlation by the row index   
+# stock_stock_sim_matrix is a stock x stock correlation matrix
+stock_stock_sim_matrix.index=stock_price.index 
+# assign a new row index to the correlation matrix
+stock_stock_sim_matrix.columns=stock_price.index
+# assign a new column index to the correlation matrix
+print('\nSimilarity among stocks:\n ', stock_stock_sim_matrix.head())
+for i in range(0, len(stock_stock_sim_matrix)): 
+    print('\nThe most similar stocks to %s' % stock_stock_sim_matrix.index[i])
+    print(stock_stock_sim_matrix.iloc[i].sort_values(ascending=False)[1:])
+#sort_values is a function of sorting, which is usually used to sort a column or a row
+# for a sorted row, [1:] means to show the the list from the second to the end
+
+#### - stock-to-stock Similarity Matrix by the rising or falling indicator
+price_diff=price_diff.T
+stock_stock_sim_matrix = pd.DataFrame(
+    cosine_similarity(price_diff))         
+
+stock_stock_sim_matrix.index=price_diff.index
+stock_stock_sim_matrix.columns=price_diff.index
+print('\nSimilarity among stocks:\n ', stock_stock_sim_matrix.head())
+for i in range(0, len(stock_stock_sim_matrix)): 
+    print('\nThe most similar stocks to %s' % stock_stock_sim_matrix.index[i])
+    print(stock_stock_sim_matrix.iloc[i].sort_values(ascending=False)[1:])
